@@ -1,0 +1,1 @@
+const express=require('express');const {authenticate}=require('../middleware/authenticate');const c=require('../controllers/history.controller');const r=express.Router();r.get('/me',authenticate,c.list);r.delete('/me',authenticate,c.remove);r.post('/:videoId',authenticate,c.record);r.delete('/:videoId',authenticate,c.remove);module.exports=r;

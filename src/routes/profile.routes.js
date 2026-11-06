@@ -1,0 +1,1 @@
+const express=require('express');const {authenticate}=require('../middleware/authenticate');const c=require('../controllers/profile.controller');const r=express.Router();r.patch('/me',authenticate,c.updateMe);r.get('/:username',c.publicProfile);module.exports=r;

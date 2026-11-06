@@ -1,0 +1,1 @@
+const express=require('express');const {authenticate}=require('../middleware/authenticate');const c=require('../controllers/reaction.controller');const r=express.Router();r.get('/videos/:videoId/reactions',c.reactionSummary);r.put('/videos/:videoId/reaction',authenticate,c.setReaction);r.delete('/videos/:videoId/reaction',authenticate,c.removeReaction);module.exports=r;

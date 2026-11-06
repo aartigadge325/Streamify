@@ -1,0 +1,1 @@
+const express=require('express');const {authenticate}=require('../middleware/authenticate');const c=require('../controllers/subscription.controller');const r=express.Router();r.get('/me',authenticate,c.mine);r.get('/:channelId/subscribers',c.subscribers);r.post('/:channelId',authenticate,c.subscribe);r.delete('/:channelId',authenticate,c.unsubscribe);module.exports=r;
