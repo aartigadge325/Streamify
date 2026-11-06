@@ -1,0 +1,30 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - streamify_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: mongodb://mongo:27017/streamify
+    ports:
+      - "${PORT:-5000}:5000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  streamify_mongo_data:

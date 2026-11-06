@@ -8,10 +8,10 @@ const {
 function createTokenPair(user) {
   const claims = { sub: String(user._id), role: user.role };
   return {
-    accessToken: jwt.sign({ ...claims, type: 'access' }, accessTokenSecret, {
+    accessToken: jwt.sign({ ...claims, type: 'access', jti: crypto.randomUUID() }, accessTokenSecret, {
       expiresIn: accessTokenExpiry, algorithm: 'HS256'
     }),
-    refreshToken: jwt.sign({ sub: String(user._id), type: 'refresh' }, refreshTokenSecret, {
+    refreshToken: jwt.sign({ sub: String(user._id), type: 'refresh', jti: crypto.randomUUID() }, refreshTokenSecret, {
       expiresIn: refreshTokenExpiry, algorithm: 'HS256'
     })
   };

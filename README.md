@@ -11,6 +11,8 @@ A modular REST API for a video-sharing platform built with Node.js, Express, and
 - Public video feed with search, pagination, aggregation, and indexed queries; creator video library; owner-only edits and deletion
 - Likes/dislikes; comments with one-level replies; subscriptions; public/private playlists; per-user watch history; public profiles
 - Mongoose schemas and indexes for identity, video discovery, comments, reactions, subscriptions, playlists, and history
+- Admin-only user listing and role changes; a CLI command promotes the first administrator
+- OpenAPI 3.1 specification served at `/api/v1/openapi.json`
 
 ## Requirements and setup
 
@@ -66,3 +68,60 @@ Uploads are capped at 500 MB and require Cloudinary credentials. Files are stage
 - Request bodies use JSON unless an endpoint explicitly says multipart form.
 - Supply a fresh access token after it expires by using the refresh endpoint.
 - Cloudinary is required only for actual media uploads; avatar and cover profile fields currently store HTTPS URLs.
+
+## API documentation
+
+The full OpenAPI 3.1 specification is in `docs/openapi.json` and is also served at `http://localhost:5000/api/v1/openapi.json` while the API runs. You can open the JSON file in Swagger Editor or import it into Postman to browse and try the routes. The specification documents the routes, request shapes, JWT bearer authentication, and common responses.
+
+## Admin access
+
+New accounts are regular users. After registering the account that should be the first administrator, run this from the project folder:
+
+```powershell
+npm run admin:promote -- your_username
+```
+
+Then sign in again to receive a token with the administrator role. Admin routes are `GET /api/v1/admin/users` (supports `page`, `limit`, and `search`) and `PATCH /api/v1/admin/users/:userId/role` with `{ "role": "user" }` or `{ "role": "admin" }`. The API prevents removing the last administrator.
+
+## Automated checks
+
+Install dependencies with `npm install`, make sure MongoDB is running, and run:
+
+```powershell
+npm test
+```
+
+The integration suite uses a separate database named `streamify_test` by default and clears that test database before and after the run. It does not use the normal `streamify` database. To select another test database, set `STREAMIFY_TEST_MONGODB_URI` to a URI whose database name includes `test`.
+
+## Small local load check
+
+Start the API and MongoDB, then in another terminal run:
+
+```powershell
+npm run load:smoke
+```
+
+This sends 50 read-only requests to the public video feed with concurrency 5 and reports throughput and latency percentiles. You can adjust `LOAD_TEST_REQUESTS` (maximum 1000), `LOAD_TEST_CONCURRENCY` (maximum 25), `LOAD_TEST_BASE_URL`, and `LOAD_TEST_PATH`. This is a basic local smoke check, not evidence of production capacity.
+
+## Run with Docker
+
+Install Docker Desktop. If `.env` does not exist, copy `.env.example` to `.env`; keep your existing `.env` if you already have one. Fill in the two JWT secrets. Cloudinary credentials are needed only if you plan to upload media. In PowerShell from the project folder:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+# Edit .env and set ACCESS_TOKEN_SECRET and REFRESH_TOKEN_SECRET
+docker compose up --build
+```
+
+The compose file starts the API and a MongoDB container with a persistent named volume. Open `http://localhost:5000/api/v1/health/ready`; the API is ready when it reports the database as connected. Stop the containers with `Ctrl+C`, or run `docker compose down` in another terminal. The named database volume remains for the next start.
+
+For a hosted deployment, provide the same required environment variables to the hosting service and use a managed MongoDB connection string reachable from that service. Keep `.env` out of GitHub and use the host's secret settings. The included Docker image and compose setup prepare the app to run in a container; they do not create a cloud account or deploy it to a paid hosting provider.
+
+## Current scope
+
+This is a portfolio backend foundation with pagination, MongoDB indexes, aggregation, authorization, media storage, integration coverage, and a small load smoke check. The local smoke check is not a production-scale benchmark. A real launch still needs a hosted API, managed database, production secrets, domain/CORS settings, monitoring, and a frontend client.
+
+
+## Continuous integration
+
+GitHub Actions runs the integration suite on pushes to `main` and pull requests targeting `main`. The workflow starts its own temporary MongoDB service and uses only the isolated `streamify_test` database.

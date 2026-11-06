@@ -1,0 +1,117 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Streamify Video Sharing API",
+    "version": "1.0.0",
+    "description": "REST API for Streamify. Protected operations use a JWT access token in the Authorization: Bearer header. Refresh tokens are rotated and stored hashed by the server."
+  },
+  "servers": [{ "url": "http://localhost:5000/api/v1", "description": "Local development" }],
+  "tags": [
+    { "name": "Health" }, { "name": "Authentication" }, { "name": "Videos" },
+    { "name": "Reactions" }, { "name": "Comments" }, { "name": "Subscriptions" },
+    { "name": "Playlists" }, { "name": "Watch history" }, { "name": "Profiles" }, { "name": "Admin" }
+  ],
+  "paths": {
+    "/health/live": { "get": { "tags": ["Health"], "summary": "Check whether the API process is alive", "responses": { "200": { "description": "API is alive" } } } },
+    "/health/ready": { "get": { "tags": ["Health"], "summary": "Check API and database readiness", "responses": { "200": { "description": "Database is connected" }, "503": { "description": "Database is unavailable" } } } },
+    "/openapi.json": { "get": { "tags": ["Health"], "summary": "Get this OpenAPI document", "responses": { "200": { "description": "OpenAPI 3.1 document" } } } },
+    "/auth/register": { "post": { "tags": ["Authentication"], "summary": "Register a user", "requestBody": { "$ref": "#/components/requestBodies/Register" }, "responses": { "201": { "description": "User and token pair created" }, "400": { "$ref": "#/components/responses/BadRequest" }, "409": { "description": "Username or email already registered" } } } },
+    "/auth/login": { "post": { "tags": ["Authentication"], "summary": "Sign in with username or email", "requestBody": { "$ref": "#/components/requestBodies/Login" }, "responses": { "200": { "description": "User and token pair" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/auth/refresh": { "post": { "tags": ["Authentication"], "summary": "Rotate the refresh token and issue a new access token", "requestBody": { "$ref": "#/components/requestBodies/Refresh" }, "responses": { "200": { "description": "New token pair" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/auth/logout": { "post": { "tags": ["Authentication"], "summary": "Revoke the current refresh token", "requestBody": { "$ref": "#/components/requestBodies/Refresh" }, "responses": { "204": { "description": "Logged out" } } } },
+    "/auth/me": { "get": { "tags": ["Authentication"], "summary": "Get the signed-in user", "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "Current user" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/videos": {
+      "get": { "tags": ["Videos"], "summary": "List public videos", "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Limit" }, { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 100 } }], "responses": { "200": { "description": "Paginated public video feed" } } },
+      "post": { "tags": ["Videos"], "summary": "Upload a video", "description": "Requires Cloudinary configuration. Upload limit is 500 MB.", "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["video", "title"], "properties": { "video": { "type": "string", "format": "binary" }, "title": { "type": "string", "maxLength": 120 }, "description": { "type": "string", "maxLength": 5000 }, "visibility": { "type": "string", "enum": ["public", "unlisted"], "default": "public" } } } } } }, "responses": { "201": { "description": "Video uploaded" }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "413": { "description": "File is over the upload limit" }, "503": { "description": "Cloudinary is not configured" } } }
+    },
+    "/videos/mine": { "get": { "tags": ["Videos"], "summary": "List the signed-in creator's videos", "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Limit" }, { "name": "search", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "description": "Paginated owner video library" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/videos/{videoId}": {
+      "parameters": [{ "$ref": "#/components/parameters/VideoId" }],
+      "get": { "tags": ["Videos"], "summary": "Get video details and increment its view count", "responses": { "200": { "description": "Video details" }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "patch": { "tags": ["Videos"], "summary": "Update a video owned by the signed-in user", "security": [{ "BearerAuth": [] }], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string", "maxLength": 120 }, "description": { "type": "string", "maxLength": 5000 }, "visibility": { "type": "string", "enum": ["public", "unlisted"] } }, "minProperties": 1 } } } }, "responses": { "200": { "description": "Updated video" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "description": "Not the video owner" }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "delete": { "tags": ["Videos"], "summary": "Delete an owned video and its related records", "security": [{ "BearerAuth": [] }], "responses": { "204": { "description": "Video deleted" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "description": "Not the video owner" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/videos/{videoId}/reactions": { "get": { "tags": ["Reactions"], "summary": "Get like and dislike totals", "parameters": [{ "$ref": "#/components/parameters/VideoId" }], "responses": { "200": { "description": "Reaction totals" } } } },
+    "/videos/{videoId}/reaction": {
+      "parameters": [{ "$ref": "#/components/parameters/VideoId" }],
+      "put": { "tags": ["Reactions"], "summary": "Like or dislike a video", "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReactionInput" } } } }, "responses": { "200": { "description": "Reaction saved" }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Reactions"], "summary": "Remove your reaction", "security": [{ "BearerAuth": [] }], "responses": { "204": { "description": "Reaction removed" }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/videos/{videoId}/comments": {
+      "parameters": [{ "$ref": "#/components/parameters/VideoId" }],
+      "get": { "tags": ["Comments"], "summary": "List top-level comments with reply counts", "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Limit" }], "responses": { "200": { "description": "Paginated comments" } } },
+      "post": { "tags": ["Comments"], "summary": "Create a comment or one-level reply", "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentInput" } } } }, "responses": { "201": { "description": "Comment created" }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/comments/{commentId}/replies": { "get": { "tags": ["Comments"], "summary": "List replies for a top-level comment", "parameters": [{ "$ref": "#/components/parameters/CommentId" }], "responses": { "200": { "description": "Replies" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/comments/{commentId}": {
+      "parameters": [{ "$ref": "#/components/parameters/CommentId" }],
+      "patch": { "tags": ["Comments"], "summary": "Edit your comment", "security": [{ "BearerAuth": [] }], "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentInput" } } } }, "responses": { "200": { "description": "Comment updated" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "description": "Not the comment owner" } } },
+      "delete": { "tags": ["Comments"], "summary": "Delete your comment and its replies", "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "Comment deleted" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "description": "Not the comment owner" } } }
+    },
+    "/subscriptions/me": { "get": { "tags": ["Subscriptions"], "summary": "List channels followed by the signed-in user", "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "Followed channels" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/subscriptions/{channelId}": {
+      "parameters": [{ "$ref": "#/components/parameters/ChannelId" }],
+      "post": { "tags": ["Subscriptions"], "summary": "Subscribe to a channel", "security": [{ "BearerAuth": [] }], "responses": { "201": { "description": "Subscribed" }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Subscriptions"], "summary": "Unsubscribe from a channel", "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "Unsubscribed" }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/subscriptions/{channelId}/subscribers": { "get": { "tags": ["Subscriptions"], "summary": "List a channel's subscribers", "parameters": [{ "$ref": "#/components/parameters/ChannelId" }, { "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Limit" }], "responses": { "200": { "description": "Paginated subscribers" } } } },
+    "/playlists": { "post": { "tags": ["Playlists"], "summary": "Create a playlist", "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlaylistInput" } } } }, "responses": { "201": { "description": "Playlist created" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/playlists/mine": { "get": { "tags": ["Playlists"], "summary": "List your playlists", "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "User playlists" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/playlists/{playlistId}": {
+      "parameters": [{ "$ref": "#/components/parameters/PlaylistId" }],
+      "get": { "tags": ["Playlists"], "summary": "Get a public playlist or your private playlist", "responses": { "200": { "description": "Playlist and videos" }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "patch": { "tags": ["Playlists"], "summary": "Update an owned playlist", "security": [{ "BearerAuth": [] }], "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlaylistInput" } } } }, "responses": { "200": { "description": "Updated playlist" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "description": "Not the playlist owner" } } },
+      "delete": { "tags": ["Playlists"], "summary": "Delete an owned playlist", "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "Playlist deleted" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "description": "Not the playlist owner" } } }
+    },
+    "/playlists/{playlistId}/videos": { "post": { "tags": ["Playlists"], "summary": "Add a video to an owned playlist", "parameters": [{ "$ref": "#/components/parameters/PlaylistId" }], "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlaylistVideoInput" } } } }, "responses": { "201": { "description": "Video added" }, "409": { "description": "Video is already in this playlist" } } } },
+    "/playlists/{playlistId}/videos/{videoId}": { "delete": { "tags": ["Playlists"], "summary": "Remove a video from an owned playlist", "parameters": [{ "$ref": "#/components/parameters/PlaylistId" }, { "$ref": "#/components/parameters/VideoId" }], "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "Video removed" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/history/me": {
+      "get": { "tags": ["Watch history"], "summary": "List your watch history", "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Limit" }], "responses": { "200": { "description": "Paginated watch history" } } },
+      "delete": { "tags": ["Watch history"], "summary": "Clear your watch history", "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "History cleared" } } }
+    },
+    "/history/{videoId}": {
+      "parameters": [{ "$ref": "#/components/parameters/VideoId" }],
+      "post": { "tags": ["Watch history"], "summary": "Record or update a video watch position", "security": [{ "BearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HistoryInput" } } } }, "responses": { "200": { "description": "History entry saved" } } },
+      "delete": { "tags": ["Watch history"], "summary": "Remove a video from your watch history", "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "History entry removed" } } }
+    },
+    "/users/me": { "patch": { "tags": ["Profiles"], "summary": "Update your profile", "security": [{ "BearerAuth": [] }], "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProfileInput" } } } }, "responses": { "200": { "description": "Updated profile" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/users/{username}": { "get": { "tags": ["Profiles"], "summary": "Get a public user profile and public video uploads", "parameters": [{ "$ref": "#/components/parameters/Username" }], "responses": { "200": { "description": "Public profile" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/admin/users": { "get": { "tags": ["Admin"], "summary": "Search and list users", "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Limit" }, { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 100 } }], "responses": { "200": { "description": "Paginated users" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "description": "Admin role required" } } } },
+    "/admin/users/{userId}/role": { "patch": { "tags": ["Admin"], "summary": "Change a user's role", "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/UserId" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoleInput" } } } }, "responses": { "200": { "description": "Role updated" }, "403": { "description": "Admin role required" }, "409": { "description": "Cannot demote the last administrator" } } } }
+  },
+  "components": {
+    "securitySchemes": { "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" } },
+    "parameters": {
+      "Page": { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+      "Limit": { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 50, "default": 20 } },
+      "VideoId": { "name": "videoId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } },
+      "CommentId": { "name": "commentId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } },
+      "ChannelId": { "name": "channelId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } },
+      "PlaylistId": { "name": "playlistId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } },
+      "UserId": { "name": "userId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } },
+      "Username": { "name": "username", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-z0-9_]{3,30}$" } }
+    },
+    "requestBodies": {
+      "Register": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterInput" } } } },
+      "Login": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginInput" } } } },
+      "Refresh": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshInput" } } } }
+    },
+    "responses": {
+      "BadRequest": { "description": "Request validation failed" },
+      "Unauthorized": { "description": "Authentication is required or the token is invalid" },
+      "NotFound": { "description": "Resource not found" }
+    },
+    "schemas": {
+      "RegisterInput": { "type": "object", "required": ["username", "email", "fullName", "password"], "properties": { "username": { "type": "string", "minLength": 3, "maxLength": 30, "pattern": "^[a-zA-Z0-9_]+$" }, "email": { "type": "string", "format": "email", "maxLength": 254 }, "fullName": { "type": "string", "maxLength": 80 }, "password": { "type": "string", "minLength": 8, "maxLength": 128 } } },
+      "LoginInput": { "type": "object", "required": ["identifier", "password"], "properties": { "identifier": { "type": "string", "description": "Username or email" }, "password": { "type": "string" } } },
+      "RefreshInput": { "type": "object", "required": ["refreshToken"], "properties": { "refreshToken": { "type": "string" } } },
+      "ReactionInput": { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "enum": ["like", "dislike"] } } },
+      "CommentInput": { "type": "object", "required": ["content"], "properties": { "content": { "type": "string", "minLength": 1, "maxLength": 2000 }, "parentCommentId": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$", "description": "Optional; replies must reference a top-level comment on this video" } } },
+      "PlaylistInput": { "type": "object", "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "description": { "type": "string", "maxLength": 2000 }, "visibility": { "type": "string", "enum": ["public", "private"] } } },
+      "PlaylistVideoInput": { "type": "object", "required": ["videoId"], "properties": { "videoId": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$" } } },
+      "HistoryInput": { "type": "object", "properties": { "progressSeconds": { "type": "number", "minimum": 0, "default": 0 } } },
+      "ProfileInput": { "type": "object", "properties": { "fullName": { "type": "string", "maxLength": 80 }, "bio": { "type": "string", "maxLength": 500 }, "location": { "type": "string", "maxLength": 100 }, "avatarUrl": { "type": "string", "format": "uri", "pattern": "^https://" }, "coverImageUrl": { "type": "string", "format": "uri", "pattern": "^https://" } } },
+      "RoleInput": { "type": "object", "required": ["role"], "properties": { "role": { "type": "string", "enum": ["user", "admin"] } } }
+    }
+  }
+}
