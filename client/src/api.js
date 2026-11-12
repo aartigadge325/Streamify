@@ -1,38 +1,33 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
-const ACCESS_KEY = 'streamify.access';
-const REFRESH_KEY = 'streamify.refresh';
+let accessToken = null;
 let refreshInFlight;
 
 export function getAccessToken() {
-  return sessionStorage.getItem(ACCESS_KEY);
+  return accessToken;
 }
 
 export function saveTokens(tokens = {}) {
-  if (tokens.accessToken) sessionStorage.setItem(ACCESS_KEY, tokens.accessToken);
-  if (tokens.refreshToken) sessionStorage.setItem(REFRESH_KEY, tokens.refreshToken);
+  accessToken = typeof tokens.accessToken === 'string' ? tokens.accessToken : null;
 }
 
 export function clearSession() {
-  sessionStorage.removeItem(ACCESS_KEY);
-  sessionStorage.removeItem(REFRESH_KEY);
+  accessToken = null;
 }
 
 async function rotateTokens() {
   if (refreshInFlight) return refreshInFlight;
-  const refreshToken = sessionStorage.getItem(REFRESH_KEY);
-  if (!refreshToken) return false;
 
   refreshInFlight = (async () => {
     try {
       const response = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ refreshToken })
+        headers: { Accept: 'application/json' },
+        credentials: 'include'
       });
       if (!response.ok) throw new Error('Refresh failed');
       const payload = await response.json();
       saveTokens(payload.data);
-      return true;
+      return Boolean(accessToken);
     } catch {
       clearSession();
       window.dispatchEvent(new Event('streamify:session-expired'));
@@ -41,19 +36,34 @@ async function rotateTokens() {
       refreshInFlight = undefined;
     }
   })();
+
   return refreshInFlight;
+}
+
+export async function restoreSession() {
+  const refreshed = await rotateTokens();
+  if (!refreshed) return null;
+
+  try {
+    const data = await api('/auth/me', { retry: false });
+    return data.user || null;
+  } catch {
+    clearSession();
+    return null;
+  }
 }
 
 export async function api(path, { method = 'GET', body, auth = true, retry = true } = {}) {
   const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
   const headers = { Accept: 'application/json' };
   if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
-  const accessToken = auth ? getAccessToken() : null;
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  const token = auth ? getAccessToken() : null;
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
+    credentials: 'include',
     ...(body === undefined ? {} : { body: isForm ? body : JSON.stringify(body) })
   });
 
@@ -77,3 +87,4 @@ export async function api(path, { method = 'GET', body, auth = true, retry = tru
   }
   return payload.data;
 }
+

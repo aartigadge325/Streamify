@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, clearSession, getAccessToken, saveTokens } from './api.js';
+import { api, clearSession, restoreSession, saveTokens } from './api.js';
 
 const paths = {
   home: 'M3 10.5 12 3l9 7.5M5.5 9v11h13V9M9 20v-6h6v6',
@@ -252,14 +252,20 @@ function App() {
   const [route, setRoute] = useState(() => window.location.hash.slice(1) || '/'); const [user, setUser] = useState(null); const [authOpen, setAuthOpen] = useState(false); const [search, setSearch] = useState(''); const [compact, setCompact] = useState(false); const [notice, setNotice] = useState(null); const [redirect, setRedirect] = useState('');
   useEffect(() => { const change = () => setRoute(window.location.hash.slice(1) || '/'); window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change); }, []);
   useEffect(() => { const index = route.indexOf('?'); setSearch(new URLSearchParams(index < 0 ? '' : route.slice(index + 1)).get('q') || ''); }, [route]);
-  useEffect(() => { if (!getAccessToken()) return; api('/auth/me').then(data => setUser(data.user)).catch(() => setUser(null)); }, []);
+  useEffect(() => {
+    let active = true;
+    restoreSession().then(currentUser => {
+      if (active && currentUser) setUser(currentUser);
+    });
+    return () => { active = false; };
+  }, []);
   useEffect(() => { const expired = () => setUser(null); window.addEventListener('streamify:session-expired', expired); return () => window.removeEventListener('streamify:session-expired', expired); }, []);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 3600); return () => clearTimeout(timer); }, [notice]);
   const notify = useCallback((message, type = 'success') => setNotice({ message, type }), []);
   const navigate = useCallback(path => { const next = path.startsWith('/') ? path : '/' + path; if (window.location.hash === '#' + next) setRoute(next); else window.location.hash = next; }, []);
   const openAuth = useCallback((destination = '') => { setRedirect(destination); setAuthOpen(true); }, []);
   const searchFor = useCallback(value => navigate(value.trim() ? '/?q=' + encodeURIComponent(value.trim()) : '/'), [navigate]);
-  async function signOut() { const refresh = sessionStorage.getItem('streamify.refresh'); try { if (refresh) await api('/auth/logout', { method: 'POST', auth: false, body: { refreshToken: refresh } }); } catch { /* Clear local session if API is unavailable. */ } clearSession(); setUser(null); navigate('/'); notify('You’re signed out.'); }
+  async function signOut() { try { await api('/auth/logout', { method: 'POST', auth: false }); } catch { /* Clear local session if API is unavailable. */ } clearSession(); setUser(null); navigate('/'); notify('You’re signed out.'); }
   const info = useMemo(() => { const q = route.indexOf('?'); const pathname = q < 0 ? route : route.slice(0, q); return { pathname: pathname || '/', parts: pathname.split('/').filter(Boolean), params: new URLSearchParams(q < 0 ? '' : route.slice(q + 1)) }; }, [route]);
   const first = info.parts[0]; const second = info.parts[1]; let page;
   if (first === 'watch' && second) page = <WatchPage key={second} id={second} user={user} navigate={navigate} notify={notify} openAuth={() => openAuth(route)} />;

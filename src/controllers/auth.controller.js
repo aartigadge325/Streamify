@@ -1,9 +1,38 @@
 const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { nodeEnv } = require('../config/env');
 const {
   createTokenPair, verifyRefreshToken, hashToken, tokenHashMatches
 } = require('../services/token.service');
+
+const REFRESH_COOKIE_NAME = 'streamifyRefresh';
+const REFRESH_COOKIE_PATH = '/api/v1/auth';
+const REFRESH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: nodeEnv === 'production',
+  sameSite: 'strict',
+  path: REFRESH_COOKIE_PATH,
+  maxAge: 7 * 24 * 60 * 60 * 1000
+};
+
+function setRefreshCookie(res, token) {
+  res.cookie(REFRESH_COOKIE_NAME, token, REFRESH_COOKIE_OPTIONS);
+}
+
+function clearRefreshCookie(res) {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    httpOnly: true,
+    secure: nodeEnv === 'production',
+    sameSite: 'strict',
+    path: REFRESH_COOKIE_PATH
+  });
+}
+
+function rejectRefresh(res, message) {
+  clearRefreshCookie(res);
+  throw new ApiError(401, message);
+}
 
 const usernamePattern = /^[a-zA-Z0-9_]{3,30}$/;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -45,7 +74,8 @@ const register = asyncHandler(async (req, res) => {
   }
 
   const tokens = await saveTokenPair(user);
-  res.status(201).json({ success: true, data: { user: user.toJSON(), ...tokens } });
+  setRefreshCookie(res, tokens.refreshToken);
+  res.status(201).json({ success: true, data: { user: user.toJSON(), accessToken: tokens.accessToken } });
 });
 
 const login = asyncHandler(async (req, res) => {
@@ -61,24 +91,29 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const tokens = await saveTokenPair(user);
-  res.status(200).json({ success: true, data: { user: user.toJSON(), ...tokens } });
+  setRefreshCookie(res, tokens.refreshToken);
+  res.status(200).json({ success: true, data: { user: user.toJSON(), accessToken: tokens.accessToken } });
 });
 
 const refresh = asyncHandler(async (req, res) => {
-  const { refreshToken } = req.body || {};
-  if (typeof refreshToken !== 'string' || !refreshToken) throw new ApiError(401, 'Refresh token required');
+  const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  if (typeof refreshToken !== 'string' || !refreshToken) {
+    return rejectRefresh(res, 'Refresh token required');
+  }
 
   let claims;
   try {
     claims = verifyRefreshToken(refreshToken);
   } catch {
-    throw new ApiError(401, 'Refresh token is invalid or expired');
+    return rejectRefresh(res, 'Refresh token is invalid or expired');
   }
-  if (claims.type !== 'refresh' || !claims.sub) throw new ApiError(401, 'Refresh token is invalid');
+  if (claims.type !== 'refresh' || !claims.sub) {
+    return rejectRefresh(res, 'Refresh token is invalid');
+  }
 
   const user = await User.findById(claims.sub).select('+refreshTokenHash');
   if (!user || !tokenHashMatches(refreshToken, user.refreshTokenHash)) {
-    throw new ApiError(401, 'Refresh token has expired or was already used');
+    return rejectRefresh(res, 'Refresh token has expired or was already used');
   }
 
   const tokens = createTokenPair(user);
@@ -86,13 +121,15 @@ const refresh = asyncHandler(async (req, res) => {
     { _id: user._id, refreshTokenHash: user.refreshTokenHash },
     { $set: { refreshTokenHash: hashToken(tokens.refreshToken) } }
   );
-  if (update.modifiedCount !== 1) throw new ApiError(401, 'Refresh token has already been used');
+  if (update.modifiedCount !== 1) return rejectRefresh(res, 'Refresh token has already been used');
 
-  res.status(200).json({ success: true, data: tokens });
+  setRefreshCookie(res, tokens.refreshToken);
+  res.status(200).json({ success: true, data: { accessToken: tokens.accessToken } });
 });
 
 const logout = asyncHandler(async (req, res) => {
-  const { refreshToken } = req.body || {};
+  const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  clearRefreshCookie(res);
   if (typeof refreshToken === 'string' && refreshToken) {
     let claims;
     try {

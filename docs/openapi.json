@@ -3,7 +3,7 @@
   "info": {
     "title": "Streamify Video Sharing API",
     "version": "1.0.0",
-    "description": "REST API for Streamify. Protected operations use a JWT access token in the Authorization: Bearer header. Refresh tokens are rotated and stored hashed by the server."
+    "description": "REST API for Streamify. Protected operations use a JWT access token in the Authorization: Bearer header. Refresh tokens are rotated and stored hashed by the server; browser clients receive them in an HttpOnly SameSite=Strict cookie."
   },
   "servers": [{ "url": "http://localhost:5000/api/v1", "description": "Local development" }],
   "tags": [
@@ -15,10 +15,10 @@
     "/health/live": { "get": { "tags": ["Health"], "summary": "Check whether the API process is alive", "responses": { "200": { "description": "API is alive" } } } },
     "/health/ready": { "get": { "tags": ["Health"], "summary": "Check API and database readiness", "responses": { "200": { "description": "Database is connected" }, "503": { "description": "Database is unavailable" } } } },
     "/openapi.json": { "get": { "tags": ["Health"], "summary": "Get this OpenAPI document", "responses": { "200": { "description": "OpenAPI 3.1 document" } } } },
-    "/auth/register": { "post": { "tags": ["Authentication"], "summary": "Register a user", "requestBody": { "$ref": "#/components/requestBodies/Register" }, "responses": { "201": { "description": "User and token pair created" }, "400": { "$ref": "#/components/responses/BadRequest" }, "409": { "description": "Username or email already registered" } } } },
-    "/auth/login": { "post": { "tags": ["Authentication"], "summary": "Sign in with username or email", "requestBody": { "$ref": "#/components/requestBodies/Login" }, "responses": { "200": { "description": "User and token pair" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
-    "/auth/refresh": { "post": { "tags": ["Authentication"], "summary": "Rotate the refresh token and issue a new access token", "requestBody": { "$ref": "#/components/requestBodies/Refresh" }, "responses": { "200": { "description": "New token pair" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
-    "/auth/logout": { "post": { "tags": ["Authentication"], "summary": "Revoke the current refresh token", "requestBody": { "$ref": "#/components/requestBodies/Refresh" }, "responses": { "204": { "description": "Logged out" } } } },
+    "/auth/register": { "post": { "tags": ["Authentication"], "summary": "Register a user", "requestBody": { "$ref": "#/components/requestBodies/Register" }, "responses": { "201": { "description": "User created; refresh token set in an HttpOnly cookie" }, "400": { "$ref": "#/components/responses/BadRequest" }, "409": { "description": "Username or email already registered" }, "429": { "description": "Registration rate limit reached" } } } },
+    "/auth/login": { "post": { "tags": ["Authentication"], "summary": "Sign in with username or email", "requestBody": { "$ref": "#/components/requestBodies/Login" }, "responses": { "200": { "description": "User and access token; refresh token set in an HttpOnly cookie" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "description": "Login rate limit reached" } } } },
+    "/auth/refresh": { "post": { "tags": ["Authentication"], "summary": "Rotate the refresh cookie and issue a new access token", "security": [{ "RefreshCookie": [] }], "responses": { "200": { "description": "New access token; refresh cookie rotated" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "description": "Refresh rate limit reached" } } } },
+    "/auth/logout": { "post": { "tags": ["Authentication"], "summary": "Revoke and clear the current refresh cookie", "security": [{ "RefreshCookie": [] }], "responses": { "204": { "description": "Logged out and cookie cleared" } } } },
     "/auth/me": { "get": { "tags": ["Authentication"], "summary": "Get the signed-in user", "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "Current user" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
     "/videos": {
       "get": { "tags": ["Videos"], "summary": "List public videos", "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/Limit" }, { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 100 } }], "responses": { "200": { "description": "Paginated public video feed" } } },
@@ -80,7 +80,7 @@
     "/admin/users/{userId}/role": { "patch": { "tags": ["Admin"], "summary": "Change a user's role", "security": [{ "BearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/UserId" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoleInput" } } } }, "responses": { "200": { "description": "Role updated" }, "403": { "description": "Admin role required" }, "409": { "description": "Cannot demote the last administrator" } } } }
   },
   "components": {
-    "securitySchemes": { "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" } },
+    "securitySchemes": { "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }, "RefreshCookie": { "type": "apiKey", "in": "cookie", "name": "streamifyRefresh" } },
     "parameters": {
       "Page": { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
       "Limit": { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 50, "default": 20 } },
@@ -93,8 +93,7 @@
     },
     "requestBodies": {
       "Register": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterInput" } } } },
-      "Login": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginInput" } } } },
-      "Refresh": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshInput" } } } }
+      "Login": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginInput" } } } }
     },
     "responses": {
       "BadRequest": { "description": "Request validation failed" },
@@ -104,7 +103,6 @@
     "schemas": {
       "RegisterInput": { "type": "object", "required": ["username", "email", "fullName", "password"], "properties": { "username": { "type": "string", "minLength": 3, "maxLength": 30, "pattern": "^[a-zA-Z0-9_]+$" }, "email": { "type": "string", "format": "email", "maxLength": 254 }, "fullName": { "type": "string", "maxLength": 80 }, "password": { "type": "string", "minLength": 8, "maxLength": 128 } } },
       "LoginInput": { "type": "object", "required": ["identifier", "password"], "properties": { "identifier": { "type": "string", "description": "Username or email" }, "password": { "type": "string" } } },
-      "RefreshInput": { "type": "object", "required": ["refreshToken"], "properties": { "refreshToken": { "type": "string" } } },
       "ReactionInput": { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "enum": ["like", "dislike"] } } },
       "CommentInput": { "type": "object", "required": ["content"], "properties": { "content": { "type": "string", "minLength": 1, "maxLength": 2000 }, "parentCommentId": { "type": "string", "pattern": "^[a-fA-F0-9]{24}$", "description": "Optional; replies must reference a top-level comment on this video" } } },
       "PlaylistInput": { "type": "object", "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "description": { "type": "string", "maxLength": 2000 }, "visibility": { "type": "string", "enum": ["public", "private"] } } },

@@ -22,19 +22,37 @@ const WatchHistory = require('../src/models/WatchHistory');
 
 let server;
 let baseUrl;
+const refreshCookieName = 'streamifyRefresh';
 
-function request(path, { method = 'GET', token, body } = {}) {
+function request(path, { method = 'GET', token, body, cookies } = {}) {
+  const headers = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    ...(cookies?.refreshToken ? { Cookie: `${refreshCookieName}=${cookies.refreshToken}` } : {})
+  };
   return fetch(`${baseUrl}${path}`, {
     method,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
-    },
+    headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
-  }).then(async (response) => ({
-    response,
-    data: response.status === 204 ? null : await response.json()
-  }));
+  }).then(async (response) => {
+    if (cookies) {
+      const setCookies = typeof response.headers.getSetCookie === 'function'
+        ? response.headers.getSetCookie()
+        : [response.headers.get('set-cookie')].filter(Boolean);
+      for (const setCookie of setCookies) {
+        const pair = setCookie.split(';', 1)[0];
+        const separator = pair.indexOf('=');
+        if (separator < 0 || pair.slice(0, separator) !== refreshCookieName) continue;
+        const value = pair.slice(separator + 1);
+        if (value) cookies.refreshToken = value;
+        else delete cookies.refreshToken;
+      }
+    }
+    return {
+      response,
+      data: response.status === 204 ? null : await response.json()
+    };
+  });
 }
 
 function credentials(label) {
@@ -81,11 +99,19 @@ test('Streamify API integration: auth, RBAC, videos, social features, playlists,
 
   const ownerCredentials = credentials('owner');
   const viewerCredentials = credentials('viewer');
-  const ownerRegistration = await request('/auth/register', { method: 'POST', body: ownerCredentials });
-  const viewerRegistration = await request('/auth/register', { method: 'POST', body: viewerCredentials });
+  const ownerCookies = {};
+  const viewerCookies = {};
+  const ownerRegistration = await request('/auth/register', { method: 'POST', body: ownerCredentials, cookies: ownerCookies });
+  const viewerRegistration = await request('/auth/register', { method: 'POST', body: viewerCredentials, cookies: viewerCookies });
   assert.equal(ownerRegistration.response.status, 201);
   assert.equal(viewerRegistration.response.status, 201);
   assert.equal('password' in ownerRegistration.data.data.user, false);
+  assert.equal('refreshToken' in ownerRegistration.data.data, false);
+  assert.ok(ownerCookies.refreshToken);
+  const refreshCookieHeader = ownerRegistration.response.headers.get('set-cookie') || '';
+  assert.match(refreshCookieHeader, /HttpOnly/i);
+  assert.match(refreshCookieHeader, /SameSite=Strict/i);
+  assert.match(refreshCookieHeader, /Path=\/api\/v1\/auth/i);
   assert.ok(ownerRegistration.data.data.accessToken);
 
   let ownerToken = ownerRegistration.data.data.accessToken;
@@ -181,7 +207,7 @@ test('Streamify API integration: auth, RBAC, videos, social features, playlists,
   owner.role = 'admin';
   await owner.save();
   const ownerLogin = await request('/auth/login', {
-    method: 'POST', body: { identifier: ownerCredentials.username, password: ownerCredentials.password }
+    method: 'POST', body: { identifier: ownerCredentials.username, password: ownerCredentials.password }, cookies: ownerCookies
   });
   ownerToken = ownerLogin.data.data.accessToken;
   const lastAdminDemotion = await request(`/admin/users/${ownerId}/role`, {
@@ -196,14 +222,22 @@ test('Streamify API integration: auth, RBAC, videos, social features, playlists,
   });
   assert.equal(promoteViewer.response.status, 200);
 
+  const previousRefreshToken = ownerCookies.refreshToken;
   const refreshed = await request('/auth/refresh', {
-    method: 'POST', body: { refreshToken: ownerLogin.data.data.refreshToken }
+    method: 'POST', cookies: ownerCookies
   });
   assert.equal(refreshed.response.status, 200);
+  assert.equal('refreshToken' in refreshed.data.data, false);
+  assert.ok(ownerCookies.refreshToken);
+  assert.notEqual(ownerCookies.refreshToken, previousRefreshToken);
   const replayedRefresh = await request('/auth/refresh', {
-    method: 'POST', body: { refreshToken: ownerLogin.data.data.refreshToken }
+    method: 'POST', cookies: { refreshToken: previousRefreshToken }
   });
   assert.equal(replayedRefresh.response.status, 401);
+
+  const loggedOut = await request('/auth/logout', { method: 'POST', cookies: ownerCookies });
+  assert.equal(loggedOut.response.status, 204);
+  assert.equal(ownerCookies.refreshToken, undefined);
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const registration = await request('/auth/register', {
@@ -219,12 +253,12 @@ test('Streamify API integration: auth, RBAC, videos, social features, playlists,
 
   for (let attempt = 1; attempt <= 29; attempt += 1) {
     const failedRefresh = await request('/auth/refresh', {
-      method: 'POST', body: { refreshToken: `invalid-refresh-${attempt}` }
+      method: 'POST', cookies: { refreshToken: `invalid-refresh-${attempt}` }
     });
     assert.equal(failedRefresh.response.status, 401, `failed refresh attempt ${attempt} should be allowed`);
   }
   const limitedRefresh = await request('/auth/refresh', {
-    method: 'POST', body: { refreshToken: 'another-invalid-refresh' }
+    method: 'POST', cookies: { refreshToken: 'another-invalid-refresh' }
   });
   assert.equal(limitedRefresh.response.status, 429);
   assert.match(limitedRefresh.data.message, /Too many token refresh attempts/);

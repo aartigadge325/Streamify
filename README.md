@@ -23,7 +23,7 @@ The repository also includes a responsive React client for watching and sharing 
 2. Copy `.env.example` to `.env` if needed. Set different random values of at least 32 characters for `ACCESS_TOKEN_SECRET` and `REFRESH_TOKEN_SECRET`.
 3. To upload videos, fill `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in `.env`. Keep the API secret private. The rest of the API works without Cloudinary.
 4. In PowerShell, open this folder and run `npm install`, then `npm run dev`.
-5. Register with `POST /api/v1/auth/register`, then log in with `POST /api/v1/auth/login`. Copy the returned access token and send it on protected requests as `Authorization: Bearer YOUR_ACCESS_TOKEN`.
+5. Register with `POST /api/v1/auth/register`, then log in with `POST /api/v1/auth/login`. The API returns a short-lived access token and sets the refresh token in an HttpOnly cookie. Send the access token on protected requests as `Authorization: Bearer YOUR_ACCESS_TOKEN`.
 
 The API can start while MongoDB is offline and retries its connection. Check `http://localhost:5000/api/v1/health/live` for process liveness and `/api/v1/health/ready` for database readiness.
 
@@ -49,9 +49,11 @@ Open `http://localhost:3000` in your browser. The Vite development server forwar
 
 - `POST /api/v1/auth/register` — JSON: `username`, `email`, `fullName`, `password`
 - `POST /api/v1/auth/login` — JSON: `identifier` (username or email), `password`
-- `POST /api/v1/auth/refresh` — JSON: `refreshToken`; returns a rotated token pair
-- `POST /api/v1/auth/logout` — JSON: `refreshToken`
+- `POST /api/v1/auth/refresh` — sends the `streamifyRefresh` HttpOnly cookie automatically; rotates it and returns a new access token
+- `POST /api/v1/auth/logout` — revokes the refresh cookie and clears it; no request body required
 - `GET /api/v1/auth/me` — requires access token
+
+The refresh cookie uses `HttpOnly`, `SameSite=Strict`, and a path limited to `/api/v1/auth`; the `Secure` attribute is enabled when `NODE_ENV=production`. The browser client keeps the access token in memory and uses the cookie to restore a session after a page reload.
 
 ## Videos and reactions
 
