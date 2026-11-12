@@ -205,5 +205,43 @@ test('Streamify API integration: auth, RBAC, videos, social features, playlists,
   });
   assert.equal(replayedRefresh.response.status, 401);
 
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const registration = await request('/auth/register', {
+      method: 'POST', body: credentials(`rate_limit_${attempt}`)
+    });
+    assert.equal(registration.response.status, 201);
+  }
+  const limitedRegistration = await request('/auth/register', {
+    method: 'POST', body: credentials('rate_limit_blocked')
+  });
+  assert.equal(limitedRegistration.response.status, 429);
+  assert.match(limitedRegistration.data.message, /Too many registration attempts/);
+
+  for (let attempt = 1; attempt <= 29; attempt += 1) {
+    const failedRefresh = await request('/auth/refresh', {
+      method: 'POST', body: { refreshToken: `invalid-refresh-${attempt}` }
+    });
+    assert.equal(failedRefresh.response.status, 401, `failed refresh attempt ${attempt} should be allowed`);
+  }
+  const limitedRefresh = await request('/auth/refresh', {
+    method: 'POST', body: { refreshToken: 'another-invalid-refresh' }
+  });
+  assert.equal(limitedRefresh.response.status, 429);
+  assert.match(limitedRefresh.data.message, /Too many token refresh attempts/);
+
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    const failedLogin = await request('/auth/login', {
+      method: 'POST',
+      body: { identifier: `missing-user-${attempt}-${randomUUID()}`, password: 'wrong-password' }
+    });
+    assert.equal(failedLogin.response.status, 401, `failed login attempt ${attempt} should be allowed`);
+  }
+  const limitedLogin = await request('/auth/login', {
+    method: 'POST',
+    body: { identifier: `missing-user-${randomUUID()}`, password: 'wrong-password' }
+  });
+  assert.equal(limitedLogin.response.status, 429);
+  assert.match(limitedLogin.data.message, /Too many unsuccessful sign-in attempts/);
+
   await t.diagnostic('The test used only the isolated streamify_test database; it drops that database during cleanup.');
 });
