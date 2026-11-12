@@ -1,6 +1,8 @@
-# Streamify | Video Streaming Backend
+# Streamify | Full-Stack Video Streaming Platform
 
 A modular REST API for a video-sharing platform built with Node.js, Express, and MongoDB/Mongoose.
+
+The repository also includes a responsive React client for watching and sharing videos.
 
 ## Features
 
@@ -13,16 +15,35 @@ A modular REST API for a video-sharing platform built with Node.js, Express, and
 - Mongoose schemas and indexes for identity, video discovery, comments, reactions, subscriptions, playlists, and history
 - Admin-only user listing and role changes; a CLI command promotes the first administrator
 - OpenAPI 3.1 specification served at `/api/v1/openapi.json`
+- React interface for discovery, playback, authentication, uploads, comments, reactions, subscriptions, playlists, history, and creator profiles
 
 ## Requirements and setup
 
-1. Install Node.js 20+ and MongoDB Community Server, and make sure the MongoDB Windows service is running.
+1. Install Node.js 22.12+ and MongoDB Community Server, and make sure the MongoDB Windows service is running.
 2. Copy `.env.example` to `.env` if needed. Set different random values of at least 32 characters for `ACCESS_TOKEN_SECRET` and `REFRESH_TOKEN_SECRET`.
 3. To upload videos, fill `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in `.env`. Keep the API secret private. The rest of the API works without Cloudinary.
 4. In PowerShell, open this folder and run `npm install`, then `npm run dev`.
 5. Register with `POST /api/v1/auth/register`, then log in with `POST /api/v1/auth/login`. Copy the returned access token and send it on protected requests as `Authorization: Bearer YOUR_ACCESS_TOKEN`.
 
 The API can start while MongoDB is offline and retries its connection. Check `http://localhost:5000/api/v1/health/live` for process liveness and `/api/v1/health/ready` for database readiness.
+
+## Run the full stack locally
+
+Open two terminals in VS Code, both in the Streamify project folder. The first terminal runs the backend and MongoDB connection:
+
+```powershell
+npm run dev
+```
+
+Wait until the terminal says `MongoDB connected` and `Streamify API listening on port 5000`. In the second terminal, start the frontend:
+
+```powershell
+cd client
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000` in your browser. The Vite development server forwards `/api` requests to the backend on port 5000. You can register or sign in from the page. Browsing and account features use the local API; video uploads also need the Cloudinary values in the root `.env` file. Press `Ctrl+C` in each terminal to stop its server. Run `npm install` in `client` only the first time or after its dependencies change.
 
 ## Authentication
 
@@ -119,7 +140,7 @@ For a hosted deployment, provide the same required environment variables to the 
 
 ## Current scope
 
-This is a portfolio backend foundation with pagination, MongoDB indexes, aggregation, authorization, media storage, integration coverage, and a small load smoke check. The local smoke check is not a production-scale benchmark. A real launch still needs a hosted API, managed database, production secrets, domain/CORS settings, monitoring, and a frontend client.
+This is a portfolio full-stack project with pagination, MongoDB indexes, aggregation, authorization, media storage, integration coverage, and a small load smoke check. The local smoke check is not a production-scale benchmark. A real launch still needs a hosted API, managed database, production secrets, domain settings, and monitoring.
 
 
 ## Continuous integration
