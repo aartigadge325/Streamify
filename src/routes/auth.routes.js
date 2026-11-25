@@ -1,11 +1,13 @@
 const express = require('express');
-const { register, login, refresh, logout, getCurrentUser } = require('../controllers/auth.controller');
+const { register, login, refresh, logout, getCurrentUser, changePassword } = require('../controllers/auth.controller');
 const { authenticate } = require('../middleware/authenticate');
 const { loginLimiter, registrationLimiter, refreshLimiter } = require('../middleware/authRateLimit');
+const { receiveProfileImages } = require('../middleware/profileUpload');
 const router = express.Router();
-router.post('/register', registrationLimiter, register);
+router.post('/register', registrationLimiter, receiveProfileImages, register);
 router.post('/login', loginLimiter, login);
 router.post('/refresh', refreshLimiter, refresh);
 router.post('/logout', logout);
 router.get('/me', authenticate, getCurrentUser);
+router.post('/change-password', authenticate, changePassword);
 module.exports = router;

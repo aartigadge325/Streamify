@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema({
   location: { type: String, trim: true, maxlength: 100, default: '' },
   avatarUrl: { type: String, trim: true, maxlength: 2048, default: '' },
   coverImageUrl: { type: String, trim: true, maxlength: 2048, default: '' },
+  avatarPublicId: { type: String, select: false, default: null },
+  coverImagePublicId: { type: String, select: false, default: null },
   password: { type: String, required: true, select: false },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   refreshTokenHash: { type: String, select: false, default: null }
@@ -20,6 +22,8 @@ const userSchema = new mongoose.Schema({
   toJSON: { transform: (_doc, value) => {
     delete value.password;
     delete value.refreshTokenHash;
+    delete value.avatarPublicId;
+    delete value.coverImagePublicId;
     delete value.__v;
     return value;
   } }

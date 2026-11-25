@@ -80,20 +80,28 @@ function Notice({ notice, close }) {
 function AuthDialog({ close, success }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ identifier: '', username: '', email: '', fullName: '', password: '' });
+  const [avatarFile, setAvatarFile] = useState(null); const [coverFile, setCoverFile] = useState(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   function update(event) { setForm(current => ({ ...current, [event.target.name]: event.target.value })); }
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      const result = mode === 'login'
-        ? await api('/auth/login', { method: 'POST', auth: false, body: { identifier: form.identifier, password: form.password } })
-        : await api('/auth/register', { method: 'POST', auth: false, body: { username: form.username, email: form.email, fullName: form.fullName, password: form.password } });
+      let body = mode === 'login'
+        ? { identifier: form.identifier, password: form.password }
+        : { username: form.username, email: form.email, fullName: form.fullName, password: form.password };
+      if (mode === 'register' && (avatarFile || coverFile)) {
+        body = new FormData();
+        for (const [key, value] of Object.entries({ username: form.username, email: form.email, fullName: form.fullName, password: form.password })) body.append(key, value);
+        if (avatarFile) body.append('avatar', avatarFile);
+        if (coverFile) body.append('coverImage', coverFile);
+      }
+      const result = await api(mode === 'login' ? '/auth/login' : '/auth/register', { method: 'POST', auth: false, body });
       saveTokens(result); success(result.user);
     } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   }
   return <div className="modal-scrim" role="presentation" onMouseDown={event => event.target === event.currentTarget && close()}><section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
     <button className="icon-button modal-close" onClick={close} aria-label="Close"><Icon name="close" /></button><div className="auth-brand"><span className="brand-symbol"><Icon name="play" size={18} /></span><span>Streamify</span></div><span className="eyebrow">YOUR NEXT FAVORITE VIDEO</span><h2 id="auth-title">{mode === 'login' ? 'Welcome back' : 'Join the community'}</h2><p className="auth-subtitle">{mode === 'login' ? 'Sign in to pick up where you left off.' : 'Create an account to share and save videos.'}</p>
-    <form className="stack-form" onSubmit={submit}>{mode === 'register' ? <><label>Full name<input name="fullName" value={form.fullName} onChange={update} required maxLength="80" autoComplete="name" /></label><label>Username<input name="username" value={form.username} onChange={update} required minLength="3" maxLength="30" pattern="[A-Za-z0-9_]+" autoComplete="username" /></label><label>Email<input name="email" type="email" value={form.email} onChange={update} required maxLength="254" autoComplete="email" /></label></> : <label>Username or email<input name="identifier" value={form.identifier} onChange={update} required autoComplete="username" /></label>}
+    <form className="stack-form" onSubmit={submit}>{mode === 'register' ? <><label>Full name<input name="fullName" value={form.fullName} onChange={update} required maxLength="80" autoComplete="name" /></label><label>Username<input name="username" value={form.username} onChange={update} required minLength="3" maxLength="30" pattern="[A-Za-z0-9_]+" autoComplete="username" /></label><label>Email<input name="email" type="email" value={form.email} onChange={update} required maxLength="254" autoComplete="email" /></label><label>Avatar image (optional)<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => setAvatarFile(event.target.files?.[0] || null)} /></label><label>Cover image (optional)<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => setCoverFile(event.target.files?.[0] || null)} /></label></> : <label>Username or email<input name="identifier" value={form.identifier} onChange={update} required autoComplete="username" /></label>}
       <label>Password<input name="password" type="password" value={form.password} onChange={update} required minLength="8" maxLength="128" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full-button" disabled={busy}>{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}</button>
     </form><p className="auth-switch">{mode === 'login' ? 'New to Streamify?' : 'Already have an account?'} <button onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>{mode === 'login' ? 'Create an account' : 'Sign in'}</button></p>
   </section></div>;
@@ -233,19 +241,98 @@ function PlaylistPage({ id, user, navigate, notify }) {
     {playlist.items.length ? <div className="playlist-video-list">{playlist.items.map((entry, index) => entry.video && <div className="playlist-video-row" key={entry._id}><span className="playlist-position">{String(index + 1).padStart(2, '0')}</span><VideoCard video={entry.video} onOpen={() => navigate('/watch/' + entry.video._id)} onAuthor={name => name && navigate('/channel/' + name)} />{owned && <button className="icon-button remove-item" title="Remove from playlist" onClick={() => remove(entry.video._id)}><Icon name="trash" size={17} /></button>}</div>)}</div> : <Empty icon="playlist" title="This playlist is empty" text="Open a video and use “Save to” to add it here." action={<button className="secondary-button" onClick={() => navigate('/')}>Find a video</button>} />}
   </div>;
 }
-function ProfilePage({ username, user, openAuth, navigate, notify }) {
-  const [profile, setProfile] = useState(null); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [editing, setEditing] = useState(false); const [bio, setBio] = useState(''); const [location, setLocation] = useState(''); const [saving, setSaving] = useState(false);
+function ProfilePage({ username, user, openAuth, navigate, notify, onUserUpdate }) {
+  const [profile, setProfile] = useState(null); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [editing, setEditing] = useState(false);
+  const [fullName, setFullName] = useState(''); const [email, setEmail] = useState(''); const [bio, setBio] = useState(''); const [location, setLocation] = useState('');
+  const [avatarFile, setAvatarFile] = useState(null); const [coverFile, setCoverFile] = useState(null); const [emailPassword, setEmailPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState(''); const [newPassword, setNewPassword] = useState('');
+  const [saving, setSaving] = useState(false); const [changingPassword, setChangingPassword] = useState(false);
   const target = username === 'me' ? user && user.username : username; const own = !!user && user.username === target;
-  const load = useCallback(async () => { if (!target) { setLoading(false); return; } setLoading(true); setError(''); try { const data = await api('/users/' + encodeURIComponent(target), { auth: false }); setProfile(data); setBio(data.user.bio || ''); setLocation(data.user.location || ''); } catch (failure) { setError(failure.message); } finally { setLoading(false); } }, [target]);
+  const load = useCallback(async () => {
+    if (!target) { setLoading(false); return; }
+    setLoading(true); setError('');
+    try {
+      const data = await api('/users/' + encodeURIComponent(target), { auth: Boolean(user) });
+      setProfile(data); setFullName(data.user.fullName || ''); setEmail(data.user.email || ''); setBio(data.user.bio || ''); setLocation(data.user.location || '');
+    } catch (failure) { setError(failure.message); }
+    finally { setLoading(false); }
+  }, [target, user]);
   useEffect(() => { load(); }, [load]);
-  async function save(event) { event.preventDefault(); setSaving(true); try { await api('/users/me', { method: 'PATCH', body: { bio, location } }); setEditing(false); await load(); notify('Profile updated.'); } catch (failure) { notify(failure.message, 'error'); } finally { setSaving(false); } }
+
+  async function save(event) {
+    event.preventDefault(); setSaving(true);
+    try {
+      const emailChanged = email.trim().toLowerCase() !== String(profile.user.email || '').toLowerCase();
+      const values = { fullName, bio, location };
+      if (emailChanged) { values.email = email; values.currentPassword = emailPassword; }
+      const hasImage = Boolean(avatarFile || coverFile);
+      let body = values;
+      if (hasImage) {
+        body = new FormData();
+        for (const [key, value] of Object.entries(values)) body.append(key, value);
+        if (avatarFile) body.append('avatar', avatarFile);
+        if (coverFile) body.append('coverImage', coverFile);
+      }
+      const updated = await api('/users/me', { method: 'PATCH', body });
+      if (onUserUpdate) onUserUpdate(updated);
+      setEditing(false); setAvatarFile(null); setCoverFile(null); setEmailPassword('');
+      await load(); notify('Profile updated.');
+    } catch (failure) { notify(failure.message, 'error'); }
+    finally { setSaving(false); }
+  }
+
+  async function changePassword(event) {
+    event.preventDefault(); setChangingPassword(true);
+    try {
+      await api('/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } });
+      clearSession(); if (onUserUpdate) onUserUpdate(null); setCurrentPassword(''); setNewPassword('');
+      setEditing(false); navigate('/'); notify('Password changed. Sign in again to continue.');
+    } catch (failure) { notify(failure.message, 'error'); }
+    finally { setChangingPassword(false); }
+  }
+
+  async function toggleSubscription() {
+    if (!user) { openAuth(); return; }
+    const nextSubscribed = !profile.stats.isSubscribed;
+    try {
+      await api('/subscriptions/' + profile.user._id, { method: nextSubscribed ? 'POST' : 'DELETE' });
+      setProfile(current => ({ ...current, stats: { ...current.stats, isSubscribed: nextSubscribed, subscriberCount: Math.max(0, current.stats.subscriberCount + (nextSubscribed ? 1 : -1)) } }));
+      notify(nextSubscribed ? 'You are subscribed to this channel.' : 'Subscription removed.');
+    } catch (failure) { notify(failure.message, 'error'); }
+  }
+
+  function closeProfileEditor() {
+    setEditing(false); setAvatarFile(null); setCoverFile(null); setEmailPassword(''); setCurrentPassword(''); setNewPassword('');
+  }
+
   if (username === 'me' && !user) return <AuthOnly open={openAuth} title="Your channel starts with you" text="Sign in to view and edit your Streamify profile." />;
   if (loading) return <div className="content-page"><div className="loading-state"><span className="spinner" /><p>Opening channel…</p></div></div>;
   if (error || !profile) return <div className="content-page"><div className="error-state"><h2>Channel not found</h2><p>{error}</p><button className="secondary-button" onClick={() => navigate('/')}>Back to discover</button></div></div>;
-  return <div className="content-page profile-page"><div className="profile-cover"><div className="cover-orbit orbit-a" /><div className="cover-orbit orbit-b" /><span className="cover-word">STREAMIFY</span></div>
-    <div className="profile-heading"><Avatar name={profile.user.fullName || profile.user.username} image={profile.user.avatarUrl} size="xl" /><div className="profile-heading-copy"><span className="eyebrow">CREATOR CHANNEL</span><h1>{profile.user.fullName || profile.user.username}</h1><p>@{profile.user.username}{profile.user.location ? ' · ' + profile.user.location : ''}</p></div>{own && <button className="secondary-button profile-edit" onClick={() => setEditing(value => !value)}>Edit profile</button>}</div>
-    {editing && <form className="profile-edit-form" onSubmit={save}><label>Bio<textarea rows="3" maxLength="500" value={bio} onChange={event => setBio(event.target.value)} placeholder="A little about you" /></label><label>Location<input value={location} maxLength="100" onChange={event => setLocation(event.target.value)} placeholder="Your city or region" /></label><div><button className="primary-button" disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</button><button type="button" className="text-button" onClick={() => setEditing(false)}>Cancel</button></div></form>}
-    <p className="profile-bio">{profile.user.bio || (own ? 'Add a short bio so people know what you love to share.' : 'This creator hasn’t added a bio yet.')}</p><div className="profile-stats"><div><strong>{count(profile.stats.videoCount)}</strong><span>videos</span></div><div><strong>{count(profile.stats.subscriberCount)}</strong><span>subscribers</span></div><div><strong>{count(profile.stats.subscriptionsCount)}</strong><span>following</span></div></div><div className="section-divider" /><div className="feed-heading profile-feed-heading"><div><span className="eyebrow">FROM THIS CREATOR</span><h2>Videos</h2></div></div><VideoGrid videos={profile.videos || []} navigate={navigate} />
+  return <div className="content-page profile-page">
+    <div className="profile-cover" style={profile.user.coverImageUrl ? { backgroundImage: 'linear-gradient(90deg, rgba(20,18,28,.5), rgba(20,18,28,.05)), url("' + profile.user.coverImageUrl + '")' } : undefined}><div className="cover-orbit orbit-a" /><div className="cover-orbit orbit-b" /><span className="cover-word">STREAMIFY</span></div>
+    <div className="profile-heading"><Avatar name={profile.user.fullName || profile.user.username} image={profile.user.avatarUrl} size="xl" /><div className="profile-heading-copy"><span className="eyebrow">CREATOR CHANNEL</span><h1>{profile.user.fullName || profile.user.username}</h1><p>@{profile.user.username}{profile.user.location ? ' · ' + profile.user.location : ''}</p></div>{own ? <button className="secondary-button profile-edit" onClick={() => editing ? closeProfileEditor() : setEditing(true)}>Edit profile</button> : <button className="secondary-button profile-edit" onClick={toggleSubscription}>{profile.stats.isSubscribed ? 'Subscribed' : 'Subscribe'}</button>}</div>
+    {editing && <div className="profile-edit-form">
+      <form onSubmit={save}>
+        <label>Full name<input value={fullName} maxLength="80" onChange={event => setFullName(event.target.value)} required /></label>
+        <label>Email<input type="email" value={email} maxLength="254" onChange={event => setEmail(event.target.value)} required /></label>
+        {email.trim().toLowerCase() !== String(profile.user.email || '').toLowerCase() && <label>Current password to confirm email change<input type="password" value={emailPassword} onChange={event => setEmailPassword(event.target.value)} autoComplete="current-password" required /></label>}
+        <label>Bio<textarea rows="3" maxLength="500" value={bio} onChange={event => setBio(event.target.value)} placeholder="A little about you" /></label>
+        <label>Location<input value={location} maxLength="100" onChange={event => setLocation(event.target.value)} placeholder="Your city or region" /></label>
+        <label>Avatar image (JPEG, PNG, WebP, or GIF; up to 5 MB)<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => setAvatarFile(event.target.files?.[0] || null)} /></label>
+        <label>Cover image (JPEG, PNG, WebP, or GIF; up to 5 MB)<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => setCoverFile(event.target.files?.[0] || null)} /></label>
+        <div><button className="primary-button" disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</button><button type="button" className="text-button" onClick={closeProfileEditor}>Cancel</button></div>
+      </form>
+      <form className="profile-password-form" onSubmit={changePassword}>
+        <span className="eyebrow">ACCOUNT SECURITY</span><h3>Change password</h3>
+        <label>Current password<input type="password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} autoComplete="current-password" required /></label>
+        <label>New password<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} minLength="8" maxLength="128" autoComplete="new-password" required /></label>
+        <p>Changing your password signs you out so you can start a fresh session.</p>
+        <button className="secondary-button" disabled={changingPassword}>{changingPassword ? 'Changing…' : 'Change password'}</button>
+      </form>
+    </div>}
+    <p className="profile-bio">{profile.user.bio || (own ? 'Add a short bio so people know what you love to share.' : 'This creator has not added a bio yet.')}</p>
+    <div className="profile-stats"><div><strong>{count(profile.stats.videoCount)}</strong><span>videos</span></div><div><strong>{count(profile.stats.subscriberCount)}</strong><span>subscribers</span></div><div><strong>{count(profile.stats.subscriptionsCount)}</strong><span>following</span></div></div>
+    <div className="section-divider" /><div className="feed-heading profile-feed-heading"><div><span className="eyebrow">FROM THIS CREATOR</span><h2>Videos</h2></div></div><VideoGrid videos={profile.videos || []} navigate={navigate} />
   </div>;
 }
 function App() {
@@ -274,7 +361,7 @@ function App() {
   else if (first === 'subscriptions') page = <SubscriptionsPage user={user} openAuth={() => openAuth('/subscriptions')} navigate={navigate} />;
   else if (first === 'playlists' && !second) page = <PlaylistsPage user={user} openAuth={() => openAuth('/playlists')} navigate={navigate} notify={notify} />;
   else if (first === 'playlist' && second) page = <PlaylistPage key={second} id={second} user={user} navigate={navigate} notify={notify} />;
-  else if (first === 'channel') page = <ProfilePage key={second || 'me'} username={second || 'me'} user={user} openAuth={() => openAuth(route)} navigate={navigate} notify={notify} />;
+  else if (first === 'channel') page = <ProfilePage key={second || 'me'} username={second || 'me'} user={user} openAuth={() => openAuth(route)} navigate={navigate} notify={notify} onUserUpdate={setUser} />;
   else page = <HomePage query={info.params.get('q') || ''} navigate={navigate} />;
   return <div className="app-shell"><Sidebar route={info.pathname} user={user} navigate={navigate} openAuth={() => openAuth()} compact={compact} toggle={() => setCompact(value => !value)} /><div className="app-main">
     <Header user={user} openAuth={() => openAuth()} navigate={navigate} signOut={signOut} search={search} setSearch={setSearch} onSearch={searchFor} /><main className="main-content">{page}</main><footer className="app-footer"><span>Streamify</span><span>Stories worth pressing play on.</span><a href="/api/v1/openapi.json" target="_blank" rel="noreferrer">API docs <Icon name="arrow" size={13} /></a></footer>

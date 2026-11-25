@@ -5,6 +5,9 @@ const { nodeEnv } = require('../config/env');
 const {
   createTokenPair, verifyRefreshToken, hashToken, tokenHashMatches
 } = require('../services/token.service');
+const {
+  uploadProfileImage, removeProfileTempFiles, removeUploadedAssets
+} = require('../services/profileImage.service');
 
 const REFRESH_COOKIE_NAME = 'streamifyRefresh';
 const REFRESH_COOKIE_PATH = '/api/v1/auth';
@@ -62,20 +65,42 @@ async function saveTokenPair(user) {
 
 const register = asyncHandler(async (req, res) => {
   const { username, email, fullName, password } = req.body || {};
-  validateRegistration({ username, email, fullName, password });
-
-  const user = new User({ username, email, fullName, password });
+  const files = req.files || {};
+  const uploadedAssets = [];
+  let userCreated = false;
   try {
+    validateRegistration({ username, email, fullName, password });
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedUsername = username.trim().toLowerCase();
+    if (await User.exists({ $or: [{ email: normalizedEmail }, { username: normalizedUsername }] })) {
+      throw new ApiError(409, 'That username or email is already registered');
+    }
+
+    const avatarAsset = files.avatar?.[0] ? await uploadProfileImage(files.avatar[0].path) : null;
+    if (avatarAsset) uploadedAssets.push(avatarAsset);
+    const coverAsset = files.coverImage?.[0] ? await uploadProfileImage(files.coverImage[0].path) : null;
+    if (coverAsset) uploadedAssets.push(coverAsset);
+
+    const user = new User({
+      username, email, fullName, password,
+      ...(avatarAsset ? { avatarUrl: avatarAsset.url, avatarPublicId: avatarAsset.publicId } : {}),
+      ...(coverAsset ? { coverImageUrl: coverAsset.url, coverImagePublicId: coverAsset.publicId } : {})
+    });
     await user.save();
+    userCreated = true;
+
+    const tokens = await saveTokenPair(user);
+    setRefreshCookie(res, tokens.refreshToken);
+    res.status(201).json({ success: true, data: { user: user.toJSON(), accessToken: tokens.accessToken } });
   } catch (error) {
+    if (!userCreated) await removeUploadedAssets(uploadedAssets);
+    if (error instanceof ApiError) throw error;
     if (error.code === 11000) throw new ApiError(409, 'That username or email is already registered');
     if (error.name === 'ValidationError') throw new ApiError(400, 'Please check the registration details');
     throw error;
+  } finally {
+    await removeProfileTempFiles(files);
   }
-
-  const tokens = await saveTokenPair(user);
-  setRefreshCookie(res, tokens.refreshToken);
-  res.status(201).json({ success: true, data: { user: user.toJSON(), accessToken: tokens.accessToken } });
 });
 
 const login = asyncHandler(async (req, res) => {
@@ -147,11 +172,33 @@ const logout = asyncHandler(async (req, res) => {
   }
   res.status(204).end();
 });
+
+const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (typeof currentPassword !== 'string' || !currentPassword || typeof newPassword !== 'string') {
+    throw new ApiError(400, 'currentPassword and newPassword are required');
+  }
+  if (newPassword.length < 8 || newPassword.length > 128) {
+    throw new ApiError(400, 'newPassword must be between 8 and 128 characters');
+  }
+
+  const user = await User.findById(req.auth.userId).select('+password +refreshTokenHash');
+  if (!user) throw new ApiError(404, 'User not found');
+  if (!(await user.verifyPassword(currentPassword))) throw new ApiError(401, 'Current password is incorrect');
+  if (await user.verifyPassword(newPassword)) throw new ApiError(400, 'newPassword must be different from currentPassword');
+
+  user.password = newPassword;
+  user.refreshTokenHash = null;
+  await user.save();
+  clearRefreshCookie(res);
+  res.status(200).json({ success: true, message: 'Password changed. Please sign in again.' });
+});
+
 const getCurrentUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.auth.userId);
   if (!user) throw new ApiError(404, 'User not found');
   res.status(200).json({ success: true, data: { user } });
 });
 
-module.exports = { register, login, refresh, logout, getCurrentUser };
+module.exports = { register, login, refresh, logout, changePassword, getCurrentUser };
 

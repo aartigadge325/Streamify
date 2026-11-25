@@ -304,9 +304,14 @@ a { color: inherit; text-decoration: none; }
 .profile-stats span { color: #8b8994; font-size: 10px; }
 .section-divider { height: 1px; margin: 7px 0 28px; background: #303039; }
 .profile-feed-heading { margin-bottom: 19px; }
-.profile-edit-form { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; padding: 17px; margin: 16px 25px; border: 1px solid #383840; border-radius: 13px; background: #1a1b21; }
-.profile-edit-form label:first-child { grid-row: span 2; }
-.profile-edit-form > div { display: flex; align-items: center; gap: 14px; }
+.profile-edit-form { padding: 17px; margin: 16px 25px; border: 1px solid #383840; border-radius: 13px; background: #1a1b21; }
+.profile-edit-form > form { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+.profile-edit-form > form > div { display: flex; align-items: center; gap: 14px; }
+.profile-password-form { margin-top: 20px; padding-top: 18px; border-top: 1px solid #383840; }
+.profile-password-form h3 { grid-column: 1 / -1; margin: 0; font-family: Manrope, sans-serif; font-size: 15px; }
+.profile-password-form p { grid-column: 1 / -1; margin: 0; color: #aaa8b2; font-size: 11px; }
+.profile-password-form button { justify-self: start; }
+.profile-edit-form input[type="file"] { min-height: 42px; padding: 8px; }
 .profile-edit-form .primary-button { min-height: 38px; }
 .app-footer { flex-shrink: 0; }
 
@@ -389,8 +394,8 @@ a { color: inherit; text-decoration: none; }
   .profile-edit { min-height: 34px; padding: 0 9px; margin-top: 17px; font-size: 10px; }
   .profile-bio { margin: 17px 10px; }
   .profile-stats { gap: 27px; padding: 13px 10px; }
-  .profile-edit-form { grid-template-columns: 1fr; margin: 15px 0; }
-  .profile-edit-form label:first-child { grid-row: auto; }
+  .profile-edit-form { margin: 15px 0; }
+  .profile-edit-form > form { grid-template-columns: 1fr; }
   .app-footer { gap: 11px; padding: 16px 15px; font-size: 9px; }
   .app-footer span:nth-child(2) { display: none; }
   .auth-modal { padding: 27px 22px; }

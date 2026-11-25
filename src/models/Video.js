@@ -15,6 +15,7 @@ const videoSchema = new mongoose.Schema({
 
 videoSchema.index({ visibility: 1, createdAt: -1 });
 videoSchema.index({ owner: 1, createdAt: -1 });
+videoSchema.index({ owner: 1, visibility: 1, createdAt: -1 });
 videoSchema.index({ title: 'text', description: 'text' });
 
 module.exports = mongoose.model('Video', videoSchema);
